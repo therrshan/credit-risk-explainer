@@ -1,6 +1,6 @@
 # Credit Risk Explainer
 
-[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://your-app-url.streamlit.app)
+[![Streamlit App](https://static.streamlit.io/badges/streamlit_badge_black_white.svg)](https://credit-risk-explain.streamlit.app)
 
 An explainable AI dashboard for credit risk assessment using machine learning models with SHAP and LIME explanations, plus comprehensive fairness analysis.
 
@@ -14,7 +14,7 @@ An explainable AI dashboard for credit risk assessment using machine learning mo
 
 ## Live Demo
 
-[View the live dashboard](https://your-app-url.streamlit.app)
+[View the live dashboard](https://credit-risk-explain.streamlit.app)
 
 ## Run Locally
 
