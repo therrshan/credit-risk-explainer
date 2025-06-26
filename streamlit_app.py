@@ -170,7 +170,6 @@ def load_explainer(_models):
         explainer.initialize_shap_explainers()
         # Reduced sample size for deployment
         explainer.compute_shap_values(sample_size=50)  # Much smaller
-        st.success("✅ SHAP explainer loaded successfully")
     except Exception as e:
         st.warning(f"⚠️ SHAP initialization failed: {str(e)}")
         st.info("Some explainability features may be limited")
@@ -298,21 +297,7 @@ def show_model_performance(scores):
                        ax=ax)
             ax.set_title(f'{model_name.title()}')
             st.pyplot(fig)
-    
-    # Confusion matrices
-    st.subheader("Confusion Matrices")
-    cols = st.columns(len(scores))
-    
-    for i, (model_name, model_scores) in enumerate(scores.items()):
-        with cols[i]:
-            cm = np.array(model_scores['confusion_matrix'])
-            fig, ax = plt.subplots(figsize=(6, 4))
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
-                       xticklabels=['Bad Credit', 'Good Credit'],
-                       yticklabels=['Bad Credit', 'Good Credit'],
-                       ax=ax)
-            ax.set_title(f'{model_name.title()}')
-            st.pyplot(fig)
+
 
 def show_individual_prediction(explainer, model_name, X_test, y_test):
     st.header("🔍 Individual Prediction Analysis")
