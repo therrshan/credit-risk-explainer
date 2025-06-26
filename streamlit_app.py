@@ -170,7 +170,6 @@ def load_explainer(_models):
         explainer.initialize_shap_explainers()
         # Reduced sample size for deployment
         explainer.compute_shap_values()  # Much smaller
-        st.success("✅ SHAP explainer loaded successfully")
     except Exception as e:
         st.warning(f"⚠️ SHAP initialization failed: {str(e)}")
         st.info("Some explainability features may be limited")
