@@ -169,7 +169,8 @@ def load_explainer(_models):
     try:
         explainer.initialize_shap_explainers()
         # Reduced sample size for deployment
-        explainer.compute_shap_values(sample_size=50)  # Much smaller
+        explainer.compute_shap_values()  # Much smaller
+        st.success("✅ SHAP explainer loaded successfully")
     except Exception as e:
         st.warning(f"⚠️ SHAP initialization failed: {str(e)}")
         st.info("Some explainability features may be limited")
@@ -251,7 +252,7 @@ def show_model_performance(scores):
             labels={'x': 'Model', 'y': 'AUC Score'}
         )
         fig_auc.update_layout(showlegend=False)
-        st.plotly_chart(fig_auc, use_container_width=True)
+        st.plotly_chart(fig_auc, use_container_width=True, key="model_performance_auc")
     
     with col2:
         st.subheader("ROC Curves")
@@ -281,7 +282,7 @@ def show_model_performance(scores):
             xaxis_title="False Positive Rate",
             yaxis_title="True Positive Rate"
         )
-        st.plotly_chart(fig_roc, use_container_width=True)
+        st.plotly_chart(fig_roc, use_container_width=True, key="model_performance_roc")
     
     # Confusion matrices
     st.subheader("Confusion Matrices")
@@ -359,7 +360,7 @@ def show_individual_prediction(explainer, model_name, X_test, y_test):
                 color_continuous_scale='RdBu',
                 height=400
             )
-            st.plotly_chart(fig_shap, use_container_width=True)
+            st.plotly_chart(fig_shap, use_container_width=True, key="individual_shap_explanation")
             
         except Exception as e:
             st.error(f"Error generating SHAP explanation: {str(e)}")
@@ -391,7 +392,7 @@ def show_individual_prediction(explainer, model_name, X_test, y_test):
             color_continuous_scale='RdBu',
             height=400
         )
-        st.plotly_chart(fig_lime, use_container_width=True)
+        st.plotly_chart(fig_lime, use_container_width=True, key="individual_lime_explanation")
         
     except Exception as e:
         st.error(f"Error generating LIME explanation: {str(e)}")
@@ -428,7 +429,7 @@ def show_global_explanations(explainer, model_name):
             title=f"Top 15 Features - {model_name.title()}",
             height=600
         )
-        st.plotly_chart(fig_importance, use_container_width=True)
+        st.plotly_chart(fig_importance, use_container_width=True, key="global_feature_importance")
         
     except Exception as e:
         st.error(f"Error generating feature importance: {str(e)}")
@@ -600,7 +601,7 @@ def show_fairness_analysis(explainer, model_name, X_test, y_test, sensitive_test
                                 barmode='group',
                                 height=400
                             )
-                            st.plotly_chart(fig_bias, use_container_width=True)
+                            st.plotly_chart(fig_bias, use_container_width=True, key="fairness_shap_bias_analysis")
                         else:
                             st.info("No SHAP bias data available")
                     else:
@@ -704,31 +705,7 @@ def show_interactive_prediction(models, model_name, explainer):
         }
     ))
     
-    st.plotly_chart(fig_gauge, use_container_width=True)
-    
-    # Probability gauge
-    fig_gauge = go.Figure(go.Indicator(
-        mode = "gauge+number",
-        value = probability[1] * 100,
-        domain = {'x': [0, 1], 'y': [0, 1]},
-        title = {'text': "Good Credit Probability (%)"},
-        gauge = {
-            'axis': {'range': [None, 100]},
-            'bar': {'color': "darkblue"},
-            'steps': [
-                {'range': [0, 30], 'color': "lightgray"},
-                {'range': [30, 70], 'color': "yellow"},
-                {'range': [70, 100], 'color': "lightgreen"}
-            ],
-            'threshold': {
-                'line': {'color': "red", 'width': 4},
-                'thickness': 0.75,
-                'value': 50
-            }
-        }
-    ))
-    
-    st.plotly_chart(fig_gauge, use_container_width=True)
+    st.plotly_chart(fig_gauge, use_container_width=True, key="interactive_probability_gauge")
 
 def show_demo_mode():
     """Show demo mode with sample data"""
@@ -780,7 +757,7 @@ def show_demo_mode():
         labels={'x': 'Model', 'y': 'AUC Score'}
     )
     fig_auc.update_layout(showlegend=False)
-    st.plotly_chart(fig_auc, use_container_width=True)
+    st.plotly_chart(fig_auc, use_container_width=True, key="demo_auc_comparison")
     
     st.info("💡 To access full functionality, the models need to be trained. This requires pre-training the models locally and pushing them to the repository.")
 
