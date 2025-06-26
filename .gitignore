@@ -65,8 +65,6 @@ logs/
 temp/
 
 # Model artifacts (large files)
-models/*.pkl
-models/*.joblib
 explanations/
 plots/
 reports/
