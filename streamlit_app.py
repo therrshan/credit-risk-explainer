@@ -104,10 +104,15 @@ def train_models_if_needed():
             status_text.text("Evaluating models...")
             progress_bar.progress(90)
             
-            # Quick evaluation
+            # Quick evaluation with full metrics
             for name, model in models.items():
                 y_pred = model.predict(X_test)
                 y_proba = model.predict_proba(X_test)[:, 1]
+                
+                from sklearn.metrics import roc_curve, precision_recall_curve, confusion_matrix
+                fpr, tpr, _ = roc_curve(y_test, y_proba)
+                precision, recall, _ = precision_recall_curve(y_test, y_proba)
+                cm = confusion_matrix(y_test, y_pred)
                 
                 scores[name] = {
                     'test_accuracy': accuracy_score(y_test, y_pred),
@@ -115,9 +120,9 @@ def train_models_if_needed():
                     'test_precision': precision_score(y_test, y_pred),
                     'test_recall': recall_score(y_test, y_pred),
                     'test_f1': f1_score(y_test, y_pred),
-                    'roc_curve': {'fpr': [0, 1], 'tpr': [0, 1]},  # Placeholder
-                    'pr_curve': {'precision': [1, 0], 'recall': [0, 1]},  # Placeholder
-                    'confusion_matrix': [[0, 0], [0, 0]]  # Placeholder
+                    'roc_curve': {'fpr': fpr.tolist(), 'tpr': tpr.tolist()},
+                    'pr_curve': {'precision': precision.tolist(), 'recall': recall.tolist()},
+                    'confusion_matrix': cm.tolist()
                 }
             
             status_text.text("Saving models...")
@@ -285,6 +290,21 @@ def show_model_performance(scores):
                        ax=ax)
             ax.set_title(f'{model_name.title()}')
             st.pyplot(fig)
+    
+    # Confusion matrices
+    st.subheader("Confusion Matrices")
+    cols = st.columns(len(scores))
+    
+    for i, (model_name, model_scores) in enumerate(scores.items()):
+        with cols[i]:
+            cm = np.array(model_scores['confusion_matrix'])
+            fig, ax = plt.subplots(figsize=(6, 4))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                       xticklabels=['Bad Credit', 'Good Credit'],
+                       yticklabels=['Bad Credit', 'Good Credit'],
+                       ax=ax)
+            ax.set_title(f'{model_name.title()}')
+            st.pyplot(fig)
 
 def show_individual_prediction(explainer, model_name, X_test, y_test):
     st.header("🔍 Individual Prediction Analysis")
@@ -410,6 +430,42 @@ def show_global_explanations(explainer, model_name):
         height=600
     )
     st.plotly_chart(fig_importance, use_container_width=True)
+    
+    # SHAP Summary Plots
+    st.subheader("SHAP Summary Plots")
+    
+    # Use columns to better organize the plots
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.write("**Bar Plot (Feature Importance)**")
+        try:
+            X_sample = explainer.X_test.iloc[:shap_vals.shape[0]]
+            
+            fig, ax = plt.subplots(figsize=(6, 6))
+            shap.summary_plot(shap_vals, X_sample, 
+                             feature_names=explainer.feature_names,
+                             max_display=12, show=False, plot_type="bar")
+            plt.tight_layout()
+            st.pyplot(fig, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error generating bar plot: {str(e)}")
+    
+    with col2:
+        st.write("**Beeswarm Plot (Value Impact)**")
+        try:
+            X_sample = explainer.X_test.iloc[:shap_vals.shape[0]]
+            
+            fig2, ax2 = plt.subplots(figsize=(6, 6))
+            shap.summary_plot(shap_vals, X_sample, 
+                             feature_names=explainer.feature_names,
+                             max_display=12, show=False)
+            plt.tight_layout()
+            st.pyplot(fig2, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error generating beeswarm plot: {str(e)}")
 
 def show_fairness_analysis(explainer, model_name, X_test, y_test, sensitive_test):
     st.header("⚖️ Fairness Analysis")
@@ -455,6 +511,77 @@ def show_fairness_analysis(explainer, model_name, X_test, y_test, sensitive_test
     
     stats_df = pd.DataFrame(group_stats)
     st.dataframe(stats_df.round(4), use_container_width=True)
+    
+    # Fairness metrics
+    st.subheader("Fairness Metrics")
+    
+    if len(groups) == 2:
+        group_0_mask = sensitive_test[sensitive_attr] == groups[0]
+        group_1_mask = sensitive_test[sensitive_attr] == groups[1]
+        
+        pos_rate_0 = (predictions[group_0_mask] == 1).mean()
+        pos_rate_1 = (predictions[group_1_mask] == 1).mean()
+        
+        disparate_impact = pos_rate_0 / pos_rate_1 if pos_rate_1 > 0 else float('inf')
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.metric(
+                "Disparate Impact",
+                f"{disparate_impact:.3f}",
+                delta="Perfect: 1.0" if abs(disparate_impact - 1.0) < 0.1 else "Biased" if disparate_impact < 0.8 or disparate_impact > 1.2 else "Acceptable"
+            )
+        
+        with col2:
+            equal_opp_diff = abs(stats_df.iloc[0]['Recall'] - stats_df.iloc[1]['Recall'])
+            st.metric(
+                "Equal Opportunity Difference",
+                f"{equal_opp_diff:.3f}",
+                delta="Perfect: 0.0" if equal_opp_diff < 0.05 else "Acceptable" if equal_opp_diff < 0.1 else "Biased"
+            )
+    
+    # SHAP-based bias analysis
+    if model_name in explainer.shap_values:
+        st.subheader("SHAP-based Bias Analysis")
+        
+        try:
+            shap_vals = explainer.shap_values[model_name]
+            sensitive_vals = sensitive_test[sensitive_attr].iloc[:shap_vals.shape[0]]
+            
+            bias_data = []
+            for group in groups:
+                group_mask = sensitive_vals == group
+                if group_mask.sum() > 0:
+                    group_shap = shap_vals[group_mask]
+                    mean_abs_shap = np.abs(group_shap).mean(axis=0)
+                    
+                    for i, feature in enumerate(explainer.feature_names):
+                        bias_data.append({
+                            'Group': f'Group {group}',
+                            'Feature': feature,
+                            'Mean_Abs_SHAP': mean_abs_shap[i]
+                        })
+            
+            bias_df = pd.DataFrame(bias_data)
+            
+            # Top features comparison
+            top_features = bias_df.groupby('Feature')['Mean_Abs_SHAP'].sum().nlargest(10).index
+            bias_subset = bias_df[bias_df['Feature'].isin(top_features)]
+            
+            fig_bias = px.bar(
+                bias_subset,
+                x='Mean_Abs_SHAP',
+                y='Feature',
+                color='Group',
+                orientation='h',
+                title=f"Feature Impact by {sensitive_attr}",
+                barmode='group'
+            )
+            st.plotly_chart(fig_bias, use_container_width=True)
+            
+        except Exception as e:
+            st.error(f"Error in SHAP bias analysis: {str(e)}")
 
 def show_interactive_prediction(models, model_name, explainer):
     st.header("📋 Interactive Credit Risk Prediction")
@@ -519,6 +646,30 @@ def show_interactive_prediction(models, model_name, explainer):
     
     with col3:
         st.metric("Good Credit Probability", f"{probability[1]:.1%}")
+    
+    # Probability gauge
+    fig_gauge = go.Figure(go.Indicator(
+        mode = "gauge+number",
+        value = probability[1] * 100,
+        domain = {'x': [0, 1], 'y': [0, 1]},
+        title = {'text': "Good Credit Probability (%)"},
+        gauge = {
+            'axis': {'range': [None, 100]},
+            'bar': {'color': "darkblue"},
+            'steps': [
+                {'range': [0, 30], 'color': "lightgray"},
+                {'range': [30, 70], 'color': "yellow"},
+                {'range': [70, 100], 'color': "lightgreen"}
+            ],
+            'threshold': {
+                'line': {'color': "red", 'width': 4},
+                'thickness': 0.75,
+                'value': 50
+            }
+        }
+    ))
+    
+    st.plotly_chart(fig_gauge, use_container_width=True)
     
     # Probability gauge
     fig_gauge = go.Figure(go.Indicator(
