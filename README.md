@@ -14,7 +14,7 @@ An explainable AI dashboard for credit risk assessment using machine learning mo
 
 ## Live Demo
 
-[View the live dashboard](https://credit-risk-explain.streamlit.app)
+[View the live dashboard on streamlit](https://credit-risk-explain.streamlit.app)
 
 ## Run Locally
 
