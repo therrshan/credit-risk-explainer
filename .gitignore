@@ -52,7 +52,6 @@ Thumbs.db
 # Data files (you might want to include some)
 data/raw/*.csv
 data/processed/*.csv
-*.pkl
 *.joblib
 
 # Logs

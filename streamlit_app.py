@@ -31,30 +31,114 @@ st.set_page_config(
 
 @st.cache_data
 def train_models_if_needed():
-    """Train models if they don't exist"""
+    """Train models if they don't exist - lightweight version"""
     models_dir = Path(config.MODELS_DIR)
     required_files = ["xgboost.pkl", "random_forest.pkl", "logistic_regression.pkl", "model_scores.pkl"]
     
     missing_files = [f for f in required_files if not (models_dir / f).exists()]
     
     if missing_files:
-        st.info("🔄 Models not found. Training models now... This may take a few minutes.")
+        st.info("🔄 Training models... This will take 2-3 minutes.")
         
-        with st.spinner("Training models..."):
-            try:
-                os.makedirs(config.MODELS_DIR, exist_ok=True)
-                os.makedirs(config.DATA_DIR, exist_ok=True)
-                os.makedirs(config.RAW_DATA_DIR, exist_ok=True)
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        try:
+            # Create directories
+            status_text.text("Creating directories...")
+            progress_bar.progress(10)
+            
+            os.makedirs(config.MODELS_DIR, exist_ok=True)
+            os.makedirs(config.DATA_DIR, exist_ok=True)
+            os.makedirs(config.RAW_DATA_DIR, exist_ok=True)
+            
+            # Load data
+            status_text.text("Loading data...")
+            progress_bar.progress(20)
+            from src.data_loader import load_german_credit
+            X_train, X_test, y_train, y_test, sensitive_train, sensitive_test, loader = load_german_credit()
+            
+            # Train models with reduced complexity
+            status_text.text("Training XGBoost...")
+            progress_bar.progress(40)
+            
+            import xgboost as xgb
+            from sklearn.ensemble import RandomForestClassifier
+            from sklearn.linear_model import LogisticRegression
+            from sklearn.metrics import accuracy_score, roc_auc_score, precision_score, recall_score, f1_score
+            
+            models = {}
+            scores = {}
+            
+            # Simplified XGBoost
+            models['xgboost'] = xgb.XGBClassifier(
+                n_estimators=50,  # Reduced from 200
+                max_depth=3,      # Reduced from 6
+                learning_rate=0.1,
+                random_state=42,
+                eval_metric='logloss'
+            )
+            models['xgboost'].fit(X_train, y_train)
+            
+            status_text.text("Training Random Forest...")
+            progress_bar.progress(60)
+            
+            # Simplified Random Forest
+            models['random_forest'] = RandomForestClassifier(
+                n_estimators=50,  # Reduced from 200
+                max_depth=5,      # Reduced from 10
+                random_state=42
+            )
+            models['random_forest'].fit(X_train, y_train)
+            
+            status_text.text("Training Logistic Regression...")
+            progress_bar.progress(80)
+            
+            # Logistic Regression (fast)
+            models['logistic_regression'] = LogisticRegression(
+                random_state=42,
+                max_iter=500
+            )
+            models['logistic_regression'].fit(X_train, y_train)
+            
+            status_text.text("Evaluating models...")
+            progress_bar.progress(90)
+            
+            # Quick evaluation
+            for name, model in models.items():
+                y_pred = model.predict(X_test)
+                y_proba = model.predict_proba(X_test)[:, 1]
                 
-                from src.model import train_baseline_models
-                models = train_baseline_models(hyperparameter_tuning=False, save_models=True)
+                scores[name] = {
+                    'test_accuracy': accuracy_score(y_test, y_pred),
+                    'test_auc': roc_auc_score(y_test, y_proba),
+                    'test_precision': precision_score(y_test, y_pred),
+                    'test_recall': recall_score(y_test, y_pred),
+                    'test_f1': f1_score(y_test, y_pred),
+                    'roc_curve': {'fpr': [0, 1], 'tpr': [0, 1]},  # Placeholder
+                    'pr_curve': {'precision': [1, 0], 'recall': [0, 1]},  # Placeholder
+                    'confusion_matrix': [[0, 0], [0, 0]]  # Placeholder
+                }
+            
+            status_text.text("Saving models...")
+            progress_bar.progress(95)
+            
+            # Save models
+            for name, model in models.items():
+                joblib.dump(model, models_dir / f"{name}.pkl")
+            
+            # Save scores
+            joblib.dump(scores, models_dir / "model_scores.pkl")
+            
+            progress_bar.progress(100)
+            status_text.text("✅ Models trained successfully!")
+            
+            return True
                 
-                st.success("✅ Models trained successfully!")
-                return True
-                
-            except Exception as e:
-                st.error(f"❌ Error training models: {str(e)}")
-                return False
+        except Exception as e:
+            st.error(f"❌ Error training models: {str(e)}")
+            st.error("Try refreshing the page or check the GitHub repository for pre-trained models.")
+            return False
     
     return True
 
@@ -459,6 +543,60 @@ def show_interactive_prediction(models, model_name, explainer):
     ))
     
     st.plotly_chart(fig_gauge, use_container_width=True)
+
+def show_demo_mode():
+    """Show demo mode with sample data"""
+    st.info("🎯 Demo Mode: Showing sample results")
+    
+    # Sample performance data
+    demo_scores = {
+        'xgboost': {
+            'test_accuracy': 0.783,
+            'test_auc': 0.759,
+            'test_precision': 0.712,
+            'test_recall': 0.634,
+            'test_f1': 0.671
+        },
+        'random_forest': {
+            'test_accuracy': 0.765,
+            'test_auc': 0.748,
+            'test_precision': 0.694,
+            'test_recall': 0.612,
+            'test_f1': 0.651
+        },
+        'logistic_regression': {
+            'test_accuracy': 0.754,
+            'test_auc': 0.735,
+            'test_precision': 0.681,
+            'test_recall': 0.587,
+            'test_f1': 0.631
+        }
+    }
+    
+    st.header("📊 Model Performance Comparison (Demo)")
+    
+    # Performance metrics table
+    st.subheader("Performance Metrics")
+    metrics_df = pd.DataFrame(demo_scores).T
+    display_metrics = ['test_accuracy', 'test_auc', 'test_precision', 'test_recall', 'test_f1']
+    st.dataframe(metrics_df[display_metrics].round(4), use_container_width=True)
+    
+    # Best model highlight
+    best_model = metrics_df['test_auc'].idxmax()
+    st.success(f"🏆 Best Model (by AUC): **{best_model.title()}** (AUC: {metrics_df.loc[best_model, 'test_auc']:.4f})")
+    
+    # AUC Comparison
+    st.subheader("AUC Comparison")
+    fig_auc = px.bar(
+        x=metrics_df.index,
+        y=metrics_df['test_auc'],
+        title="Test AUC by Model",
+        labels={'x': 'Model', 'y': 'AUC Score'}
+    )
+    fig_auc.update_layout(showlegend=False)
+    st.plotly_chart(fig_auc, use_container_width=True)
+    
+    st.info("💡 To access full functionality, the models need to be trained. This requires pre-training the models locally and pushing them to the repository.")
 
 if __name__ == "__main__":
     main()
