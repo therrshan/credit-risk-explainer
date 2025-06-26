@@ -165,8 +165,16 @@ def load_models_and_data():
 def load_explainer(_models):
     explainer = CreditExplainer(_models)
     explainer.load_models_and_data()
-    explainer.initialize_shap_explainers()
-    explainer.compute_shap_values(sample_size=200)
+    
+    try:
+        explainer.initialize_shap_explainers()
+        # Reduced sample size for deployment
+        explainer.compute_shap_values(sample_size=50)  # Much smaller
+        st.success("✅ SHAP explainer loaded successfully")
+    except Exception as e:
+        st.warning(f"⚠️ SHAP initialization failed: {str(e)}")
+        st.info("Some explainability features may be limited")
+    
     return explainer
 
 def main():
@@ -291,6 +299,20 @@ def show_model_performance(scores):
             ax.set_title(f'{model_name.title()}')
             st.pyplot(fig)
     
+    # Confusion matrices
+    st.subheader("Confusion Matrices")
+    cols = st.columns(len(scores))
+    
+    for i, (model_name, model_scores) in enumerate(scores.items()):
+        with cols[i]:
+            cm = np.array(model_scores['confusion_matrix'])
+            fig, ax = plt.subplots(figsize=(6, 4))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues',
+                       xticklabels=['Bad Credit', 'Good Credit'],
+                       yticklabels=['Bad Credit', 'Good Credit'],
+                       ax=ax)
+            ax.set_title(f'{model_name.title()}')
+            st.pyplot(fig)
 
 def show_individual_prediction(explainer, model_name, X_test, y_test):
     st.header("🔍 Individual Prediction Analysis")
@@ -392,66 +414,79 @@ def show_individual_prediction(explainer, model_name, X_test, y_test):
 def show_global_explanations(explainer, model_name):
     st.header("📈 Global Model Explanations")
     
-    if model_name not in explainer.shap_values:
-        st.error("SHAP values not computed for this model.")
+    if not hasattr(explainer, 'shap_values') or model_name not in explainer.shap_values:
+        st.warning("⚠️ SHAP values not available. This may be due to memory constraints in the deployed environment.")
+        st.info("Global explanations work best when run locally with sufficient memory.")
         return
     
-    # Global feature importance
-    st.subheader("Global Feature Importance")
     shap_vals = explainer.shap_values[model_name]
+    if shap_vals is None or len(shap_vals) == 0:
+        st.warning("⚠️ SHAP values are empty. Explainability features may be limited in deployment.")
+        return
     
-    # Calculate mean absolute SHAP values
-    feature_importance = np.abs(shap_vals).mean(axis=0)
-    importance_df = pd.DataFrame({
-        'Feature': explainer.feature_names,
-        'Importance': feature_importance
-    }).sort_values('Importance', ascending=True).tail(15)
+    # Global feature importance (fallback method)
+    st.subheader("Global Feature Importance")
     
-    fig_importance = px.bar(
-        importance_df,
-        x='Importance',
-        y='Feature',
-        orientation='h',
-        title=f"Top 15 Features - {model_name.title()}",
-        height=600
-    )
-    st.plotly_chart(fig_importance, use_container_width=True)
+    try:
+        # Calculate mean absolute SHAP values
+        feature_importance = np.abs(shap_vals).mean(axis=0)
+        importance_df = pd.DataFrame({
+            'Feature': explainer.feature_names[:len(feature_importance)],  # Match array sizes
+            'Importance': feature_importance
+        }).sort_values('Importance', ascending=True).tail(15)
+        
+        fig_importance = px.bar(
+            importance_df,
+            x='Importance',
+            y='Feature',
+            orientation='h',
+            title=f"Top 15 Features - {model_name.title()}",
+            height=600
+        )
+        st.plotly_chart(fig_importance, use_container_width=True)
+        
+    except Exception as e:
+        st.error(f"Error generating feature importance: {str(e)}")
+        return
     
-    # SHAP Summary Plots
+    # SHAP Summary Plots (with reduced complexity for deployment)
     st.subheader("SHAP Summary Plots")
     
-    # Use columns to better organize the plots
-    col1, col2 = st.columns(2)
-    
-    with col1:
-        st.write("**Bar Plot (Feature Importance)**")
-        try:
-            X_sample = explainer.X_test.iloc[:shap_vals.shape[0]]
-            
-            fig, ax = plt.subplots(figsize=(6, 6))
-            shap.summary_plot(shap_vals, X_sample, 
-                             feature_names=explainer.feature_names,
-                             max_display=12, show=False, plot_type="bar")
-            plt.tight_layout()
-            st.pyplot(fig, use_container_width=True)
-            
-        except Exception as e:
-            st.error(f"Error generating bar plot: {str(e)}")
-    
-    with col2:
-        st.write("**Beeswarm Plot (Value Impact)**")
-        try:
-            X_sample = explainer.X_test.iloc[:shap_vals.shape[0]]
-            
-            fig2, ax2 = plt.subplots(figsize=(6, 6))
-            shap.summary_plot(shap_vals, X_sample, 
-                             feature_names=explainer.feature_names,
-                             max_display=12, show=False)
-            plt.tight_layout()
-            st.pyplot(fig2, use_container_width=True)
-            
-        except Exception as e:
-            st.error(f"Error generating beeswarm plot: {str(e)}")
+    try:
+        X_sample = explainer.X_test.iloc[:min(len(shap_vals), 50)]  # Limit sample size
+        shap_vals_sample = shap_vals[:len(X_sample)]
+        
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.write("**Bar Plot (Feature Importance)**")
+            try:
+                fig, ax = plt.subplots(figsize=(6, 6))
+                shap.summary_plot(shap_vals_sample, X_sample, 
+                                 feature_names=explainer.feature_names,
+                                 max_display=10, show=False, plot_type="bar")  # Reduced features
+                plt.tight_layout()
+                st.pyplot(fig, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"Bar plot failed: {str(e)}")
+        
+        with col2:
+            st.write("**Beeswarm Plot (Value Impact)**")
+            try:
+                fig2, ax2 = plt.subplots(figsize=(6, 6))
+                shap.summary_plot(shap_vals_sample, X_sample, 
+                                 feature_names=explainer.feature_names,
+                                 max_display=10, show=False)  # Reduced features
+                plt.tight_layout()
+                st.pyplot(fig2, use_container_width=True)
+                
+            except Exception as e:
+                st.error(f"Beeswarm plot failed: {str(e)}")
+                
+    except Exception as e:
+        st.error(f"Error generating SHAP summary plots: {str(e)}")
+        st.info("SHAP summary plots may not work in deployment due to memory constraints.")
 
 def show_fairness_analysis(explainer, model_name, X_test, y_test, sensitive_test):
     st.header("⚖️ Fairness Analysis")
@@ -466,108 +501,137 @@ def show_fairness_analysis(explainer, model_name, X_test, y_test, sensitive_test
         list(sensitive_test.keys())
     )
     
-    model = explainer.models.get_model(model_name)
-    predictions = model.predict(X_test)
-    probabilities = model.predict_proba(X_test)[:, 1]
-    
-    # Performance by group
-    st.subheader(f"Performance by {sensitive_attr}")
-    
-    groups = sensitive_test[sensitive_attr].unique()
-    group_stats = []
-    
-    for group in groups:
-        group_mask = sensitive_test[sensitive_attr] == group
-        group_predictions = predictions[group_mask]
-        group_probabilities = probabilities[group_mask]
-        group_actual = y_test[group_mask]
+    try:
+        model = explainer.models.get_model(model_name)
+        predictions = model.predict(X_test)
+        probabilities = model.predict_proba(X_test)[:, 1]
         
-        from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+        # Performance by group
+        st.subheader(f"Performance by {sensitive_attr}")
         
-        stats = {
-            'Group': f'Group {group}',
-            'Sample Size': len(group_actual),
-            'Accuracy': accuracy_score(group_actual, group_predictions),
-            'Precision': precision_score(group_actual, group_predictions),
-            'Recall': recall_score(group_actual, group_predictions),
-            'AUC': roc_auc_score(group_actual, group_probabilities),
-            'Positive Rate': (group_predictions == 1).mean()
-        }
-        group_stats.append(stats)
-    
-    stats_df = pd.DataFrame(group_stats)
-    st.dataframe(stats_df.round(4), use_container_width=True)
-    
-    # Fairness metrics
-    st.subheader("Fairness Metrics")
-    
-    if len(groups) == 2:
-        group_0_mask = sensitive_test[sensitive_attr] == groups[0]
-        group_1_mask = sensitive_test[sensitive_attr] == groups[1]
+        groups = sensitive_test[sensitive_attr].unique()
+        group_stats = []
         
-        pos_rate_0 = (predictions[group_0_mask] == 1).mean()
-        pos_rate_1 = (predictions[group_1_mask] == 1).mean()
+        for group in groups:
+            try:
+                group_mask = sensitive_test[sensitive_attr] == group
+                group_predictions = predictions[group_mask]
+                group_probabilities = probabilities[group_mask]
+                group_actual = y_test[group_mask]
+                
+                if len(group_actual) == 0:
+                    continue
+                
+                from sklearn.metrics import accuracy_score, precision_score, recall_score, roc_auc_score
+                
+                # Handle edge cases
+                try:
+                    precision = precision_score(group_actual, group_predictions, zero_division=0)
+                    recall = recall_score(group_actual, group_predictions, zero_division=0)
+                    auc = roc_auc_score(group_actual, group_probabilities) if len(np.unique(group_actual)) > 1 else 0.5
+                except:
+                    precision = recall = auc = 0.0
+                
+                stats = {
+                    'Group': f'Group {group}',
+                    'Sample Size': len(group_actual),
+                    'Accuracy': accuracy_score(group_actual, group_predictions),
+                    'Precision': precision,
+                    'Recall': recall,
+                    'AUC': auc,
+                    'Positive Rate': (group_predictions == 1).mean()
+                }
+                group_stats.append(stats)
+            except Exception as e:
+                st.error(f"Error processing group {group}: {str(e)}")
+                continue
         
-        disparate_impact = pos_rate_0 / pos_rate_1 if pos_rate_1 > 0 else float('inf')
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.metric(
-                "Disparate Impact",
-                f"{disparate_impact:.3f}",
-                delta="Perfect: 1.0" if abs(disparate_impact - 1.0) < 0.1 else "Biased" if disparate_impact < 0.8 or disparate_impact > 1.2 else "Acceptable"
-            )
-        
-        with col2:
-            equal_opp_diff = abs(stats_df.iloc[0]['Recall'] - stats_df.iloc[1]['Recall'])
-            st.metric(
-                "Equal Opportunity Difference",
-                f"{equal_opp_diff:.3f}",
-                delta="Perfect: 0.0" if equal_opp_diff < 0.05 else "Acceptable" if equal_opp_diff < 0.1 else "Biased"
-            )
-    
-    # SHAP-based bias analysis
-    if model_name in explainer.shap_values:
-        st.subheader("SHAP-based Bias Analysis")
-        
-        try:
-            shap_vals = explainer.shap_values[model_name]
-            sensitive_vals = sensitive_test[sensitive_attr].iloc[:shap_vals.shape[0]]
+        if group_stats:
+            stats_df = pd.DataFrame(group_stats)
+            st.dataframe(stats_df.round(4), use_container_width=True)
             
-            bias_data = []
-            for group in groups:
-                group_mask = sensitive_vals == group
-                if group_mask.sum() > 0:
-                    group_shap = shap_vals[group_mask]
-                    mean_abs_shap = np.abs(group_shap).mean(axis=0)
+            # Fairness metrics
+            st.subheader("Fairness Metrics")
+            
+            if len(groups) == 2 and len(group_stats) == 2:
+                try:
+                    group_0_mask = sensitive_test[sensitive_attr] == groups[0]
+                    group_1_mask = sensitive_test[sensitive_attr] == groups[1]
                     
-                    for i, feature in enumerate(explainer.feature_names):
-                        bias_data.append({
-                            'Group': f'Group {group}',
-                            'Feature': feature,
-                            'Mean_Abs_SHAP': mean_abs_shap[i]
-                        })
+                    pos_rate_0 = (predictions[group_0_mask] == 1).mean()
+                    pos_rate_1 = (predictions[group_1_mask] == 1).mean()
+                    
+                    disparate_impact = pos_rate_0 / pos_rate_1 if pos_rate_1 > 0 else float('inf')
+                    
+                    col1, col2 = st.columns(2)
+                    
+                    with col1:
+                        di_status = "Perfect: 1.0" if abs(disparate_impact - 1.0) < 0.1 else "Biased" if disparate_impact < 0.8 or disparate_impact > 1.2 else "Acceptable"
+                        st.metric("Disparate Impact", f"{disparate_impact:.3f}", delta=di_status)
+                    
+                    with col2:
+                        equal_opp_diff = abs(stats_df.iloc[0]['Recall'] - stats_df.iloc[1]['Recall'])
+                        eo_status = "Perfect: 0.0" if equal_opp_diff < 0.05 else "Acceptable" if equal_opp_diff < 0.1 else "Biased"
+                        st.metric("Equal Opportunity Difference", f"{equal_opp_diff:.3f}", delta=eo_status)
+                        
+                except Exception as e:
+                    st.error(f"Error calculating fairness metrics: {str(e)}")
             
-            bias_df = pd.DataFrame(bias_data)
+            # SHAP-based bias analysis (with error handling)
+            if hasattr(explainer, 'shap_values') and model_name in explainer.shap_values:
+                st.subheader("SHAP-based Bias Analysis")
+                
+                try:
+                    shap_vals = explainer.shap_values[model_name]
+                    if shap_vals is not None and len(shap_vals) > 0:
+                        sensitive_vals = sensitive_test[sensitive_attr].iloc[:min(len(shap_vals), len(sensitive_test[sensitive_attr]))]
+                        
+                        bias_data = []
+                        for group in groups:
+                            group_mask = sensitive_vals == group
+                            if group_mask.sum() > 0:
+                                group_shap = shap_vals[group_mask]
+                                mean_abs_shap = np.abs(group_shap).mean(axis=0)
+                                
+                                for i, feature in enumerate(explainer.feature_names[:len(mean_abs_shap)]):
+                                    bias_data.append({
+                                        'Group': f'Group {group}',
+                                        'Feature': feature,
+                                        'Mean_Abs_SHAP': mean_abs_shap[i]
+                                    })
+                        
+                        if bias_data:
+                            bias_df = pd.DataFrame(bias_data)
+                            top_features = bias_df.groupby('Feature')['Mean_Abs_SHAP'].sum().nlargest(8).index
+                            bias_subset = bias_df[bias_df['Feature'].isin(top_features)]
+                            
+                            fig_bias = px.bar(
+                                bias_subset,
+                                x='Mean_Abs_SHAP',
+                                y='Feature',
+                                color='Group',
+                                orientation='h',
+                                title=f"Feature Impact by {sensitive_attr}",
+                                barmode='group',
+                                height=400
+                            )
+                            st.plotly_chart(fig_bias, use_container_width=True)
+                        else:
+                            st.info("No SHAP bias data available")
+                    else:
+                        st.info("SHAP values not available for bias analysis")
+                        
+                except Exception as e:
+                    st.error(f"Error in SHAP bias analysis: {str(e)}")
+                    st.info("SHAP-based bias analysis unavailable due to memory constraints")
+            else:
+                st.info("SHAP explainer not available for bias analysis")
+        else:
+            st.error("Could not process group statistics")
             
-            # Top features comparison
-            top_features = bias_df.groupby('Feature')['Mean_Abs_SHAP'].sum().nlargest(10).index
-            bias_subset = bias_df[bias_df['Feature'].isin(top_features)]
-            
-            fig_bias = px.bar(
-                bias_subset,
-                x='Mean_Abs_SHAP',
-                y='Feature',
-                color='Group',
-                orientation='h',
-                title=f"Feature Impact by {sensitive_attr}",
-                barmode='group'
-            )
-            st.plotly_chart(fig_bias, use_container_width=True)
-            
-        except Exception as e:
-            st.error(f"Error in SHAP bias analysis: {str(e)}")
+    except Exception as e:
+        st.error(f"Error in fairness analysis: {str(e)}")
+        st.info("Fairness analysis unavailable. This may be due to deployment resource constraints.")
 
 def show_interactive_prediction(models, model_name, explainer):
     st.header("📋 Interactive Credit Risk Prediction")
